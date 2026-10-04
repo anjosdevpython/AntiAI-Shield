@@ -133,12 +133,76 @@ export interface ProtectOptions {
   antiLlmDirective?: boolean;
 }
 
+/**
+ * Scales an image file down to maxDimension if needed, preserving aspect ratio and quality.
+ * Reduces upload payload from 15MB phone photos to ~400KB, preventing mobile network timeouts.
+ */
+export async function optimizeImageForUpload(file: File, maxDimension = 1280): Promise<File> {
+  if (typeof window === "undefined" || !file.type.startsWith("image/") || file.size < 1.2 * 1024 * 1024) {
+    return file;
+  }
+
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { width, height } = img;
+      if (Math.max(width, height) <= maxDimension) {
+        resolve(file);
+        return;
+      }
+
+      const scale = maxDimension / Math.max(width, height);
+      const targetW = Math.round(width * scale);
+      const targetH = Math.round(height * scale);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(file);
+        return;
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, targetW, targetH);
+
+      const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          const optimizedFile = new File([blob], file.name, {
+            type: outputType,
+            lastModified: Date.now(),
+          });
+          resolve(optimizedFile);
+        },
+        outputType,
+        0.95
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+}
+
 export async function protectImage(
   file: File,
   options: ProtectOptions
 ): Promise<ProtectionResult> {
+  const uploadPayload = await optimizeImageForUpload(file, 1280);
+
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("file", uploadPayload);
   formData.append("method", options.method);
   formData.append("strength", options.strength);
   formData.append("target_model", options.targetModel);
