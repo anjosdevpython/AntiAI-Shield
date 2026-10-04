@@ -43,7 +43,7 @@ export const ProtectionSettings: React.FC<ProtectionSettingsProps> = ({
   const [selectedStrength, setSelectedStrength] = useState<ProtectionStrength>(
     config?.default_protection_level || "balanced"
   );
-  const [selectedMethod, setSelectedMethod] = useState<string>("anti-dreambooth");
+  const [selectedMethod, setSelectedMethod] = useState<string>("anti-editing");
   const [removeExif, setRemoveExif] = useState<boolean>(true);
 
   // Custom strategy sliders
