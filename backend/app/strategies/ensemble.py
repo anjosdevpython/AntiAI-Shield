@@ -1,13 +1,17 @@
 import asyncio
-import math
 import time
 from typing import Optional, Tuple
-import numpy as np
 from PIL import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from app.core.adversarial import (
+    apply_pgd_step,
+    finalize_adversarial_image,
+    prepare_image_tensor,
+    resolve_device,
+)
 from app.core.exif import save_image_stripped
 from app.strategies.base import (
     ProgressCallback,
@@ -25,30 +29,22 @@ class MultiModelEnsembleSurrogate(nn.Module):
 
     def __init__(self):
         super().__init__()
-        # Branch A: High-frequency edge & Laplacian (SD 1.5 surrogate)
         lap_kernel = torch.tensor(
             [[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=torch.float32
         ).view(1, 1, 3, 3).repeat(3, 1, 1, 1)
         self.register_buffer("lap_kernel", lap_kernel)
 
-        # Branch B: Multi-layer conv projections (SDXL surrogate)
         self.sdxl_proj = nn.Conv2d(3, 16, kernel_size=5, stride=2, padding=2, bias=False)
         nn.init.kaiming_normal_(self.sdxl_proj.weight)
         for p in self.parameters():
             p.requires_grad = False
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # 1. Laplacian feature map
         x_pad = F.pad(x, (1, 1, 1, 1), mode="reflect")
         lap = F.conv2d(x_pad, self.lap_kernel, groups=3)
-
-        # 2. SDXL deep features
         sdxl_feat = self.sdxl_proj(x)
         sdxl_pooled = F.adaptive_avg_pool2d(sdxl_feat, (8, 8)).flatten(1)
-
-        # 3. Structural multiscale downsampling
         down = F.avg_pool2d(x, kernel_size=4, stride=4).flatten(1)
-
         return lap.flatten(1), sdxl_pooled, down
 
 
@@ -93,16 +89,7 @@ class EnsembleStrategy(ProtectionStrategy):
     ) -> ProtectionResult:
         start_time = time.perf_counter()
 
-        if config.device == "cuda" and torch.cuda.is_available():
-            device = torch.device("cuda")
-            device_name = f"cuda ({torch.cuda.get_device_name(0)})"
-        elif config.device == "auto" and torch.cuda.is_available():
-            device = torch.device("cuda")
-            device_name = f"cuda ({torch.cuda.get_device_name(0)})"
-        else:
-            device = torch.device("cpu")
-            device_name = "cpu"
-
+        device, device_name = resolve_device(config.device)
         strength = config.strength if config.strength in self.STRENGTH_CONFIGS else "balanced"
         cfg = self.STRENGTH_CONFIGS[strength]
         epsilon = cfg["epsilon"]
@@ -113,20 +100,7 @@ class EnsembleStrategy(ProtectionStrategy):
             progress_callback(1, steps + 3, "Inicializando ensemble de modelos surrogates...")
             await asyncio.sleep(0.01)
 
-        orig_rgb = image.convert("RGB") if image.mode != "RGB" else image
-        w, h = orig_rgb.size
-        max_dim = 1920
-        resample_needed = max(w, h) > max_dim
-        if resample_needed:
-            scale = max_dim / max(w, h)
-            proc_w, proc_h = int(w * scale), int(h * scale)
-            proc_img = orig_rgb.resize((proc_w, proc_h), Image.Resampling.LANCZOS)
-        else:
-            proc_img = orig_rgb
-            proc_w, proc_h = w, h
-
-        np_img = np.array(proc_img, dtype=np.float32) / 255.0
-        x_orig = torch.from_numpy(np_img).permute(2, 0, 1).unsqueeze(0).to(device)
+        x_orig, np_img, orig_size, resampled = prepare_image_tensor(image, device)
 
         if progress_callback:
             progress_callback(2, steps + 3, f"Ensemble carregado ({device_name})")
@@ -143,13 +117,11 @@ class EnsembleStrategy(ProtectionStrategy):
         delta.requires_grad = True
 
         momentum = torch.zeros_like(x_orig)
-        decay = 0.85
 
         for step in range(steps):
             adv_x = torch.clamp(x_orig + delta, 0.0, 1.0)
             adv_lap, adv_sdxl, adv_down = ensemble(adv_x)
 
-            # Joint surrogate loss across all architectures
             loss_lap = F.cosine_similarity(adv_lap, clean_lap, dim=1).mean()
             loss_sdxl = F.cosine_similarity(adv_sdxl, clean_sdxl, dim=1).mean()
             loss_down = F.mse_loss(adv_down, clean_down)
@@ -157,14 +129,7 @@ class EnsembleStrategy(ProtectionStrategy):
             loss = 0.4 * loss_lap + 0.4 * loss_sdxl - 0.2 * loss_down
             loss.backward()
 
-            with torch.no_grad():
-                grad = delta.grad
-                grad_norm = grad / (torch.mean(torch.abs(grad), dim=(1, 2, 3), keepdim=True) + 1e-8)
-                momentum = decay * momentum + grad_norm
-                delta.data = delta.data - alpha * torch.sign(momentum)
-                delta.data = torch.clamp(delta.data, -epsilon, epsilon)
-                delta.data = torch.clamp(x_orig + delta.data, 0.0, 1.0) - x_orig
-                delta.grad.zero_()
+            delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
@@ -176,19 +141,7 @@ class EnsembleStrategy(ProtectionStrategy):
             progress_callback(steps + 3, steps + 3, "Finalizando imagem ensemble protegida...")
             await asyncio.sleep(0.01)
 
-        with torch.no_grad():
-            final_adv = torch.clamp(x_orig + delta, 0.0, 1.0).squeeze(0).permute(1, 2, 0).cpu().numpy()
-            delta_np = delta.squeeze(0).permute(1, 2, 0).cpu().numpy()
-
-            linf_norm = float(np.max(np.abs(delta_np)))
-            mse = float(np.mean((final_adv - np_img) ** 2))
-            psnr = 10.0 * math.log10(1.0 / max(mse, 1e-10))
-
-            adv_uint8 = (final_adv * 255.0).round().astype(np.uint8)
-            adv_pil = Image.fromarray(adv_uint8)
-
-            if resample_needed:
-                adv_pil = adv_pil.resize((w, h), Image.Resampling.LANCZOS)
+        adv_pil, linf_norm, psnr = finalize_adversarial_image(x_orig, delta, np_img, orig_size, resampled)
 
         fmt = config.output_format.upper()
         if fmt not in ["PNG", "JPEG", "WEBP"]:
@@ -211,12 +164,12 @@ class EnsembleStrategy(ProtectionStrategy):
             strength=strength,
             target_model="ensemble-sd15-sdxl-transferable",
             perturbation_norm_linf=linf_norm,
-            perturbation_psnr=round(psnr, 2),
+            perturbation_psnr=psnr,
             device_used=device_name,
             steps_computed=steps,
             time_taken_ms=round(elapsed_ms, 2),
-            width=w,
-            height=h,
+            width=orig_size[0],
+            height=orig_size[1],
             exif_removed=config.remove_exif,
         )
 
@@ -241,17 +194,8 @@ class CustomStrategy(ProtectionStrategy):
     ) -> ProtectionResult:
         start_time = time.perf_counter()
 
-        if config.device == "cuda" and torch.cuda.is_available():
-            device = torch.device("cuda")
-            device_name = f"cuda ({torch.cuda.get_device_name(0)})"
-        elif config.device == "auto" and torch.cuda.is_available():
-            device = torch.device("cuda")
-            device_name = f"cuda ({torch.cuda.get_device_name(0)})"
-        else:
-            device = torch.device("cpu")
-            device_name = "cpu"
+        device, device_name = resolve_device(config.device)
 
-        # Read custom or fallback parameters
         epsilon = config.custom_epsilon if config.custom_epsilon else 12.0 / 255.0
         epsilon = max(2.0 / 255.0, min(32.0 / 255.0, float(epsilon)))
         alpha = epsilon / 4.0
@@ -265,20 +209,7 @@ class CustomStrategy(ProtectionStrategy):
             progress_callback(1, steps + 3, f"Configurando parâmetros personalizados (eps={epsilon*255:.1f}/255, {steps} passos)...")
             await asyncio.sleep(0.01)
 
-        orig_rgb = image.convert("RGB") if image.mode != "RGB" else image
-        w, h = orig_rgb.size
-        max_dim = 1920
-        resample_needed = max(w, h) > max_dim
-        if resample_needed:
-            scale = max_dim / max(w, h)
-            proc_w, proc_h = int(w * scale), int(h * scale)
-            proc_img = orig_rgb.resize((proc_w, proc_h), Image.Resampling.LANCZOS)
-        else:
-            proc_img = orig_rgb
-            proc_w, proc_h = w, h
-
-        np_img = np.array(proc_img, dtype=np.float32) / 255.0
-        x_orig = torch.from_numpy(np_img).permute(2, 0, 1).unsqueeze(0).to(device)
+        x_orig, np_img, orig_size, resampled = prepare_image_tensor(image, device)
 
         if progress_callback:
             progress_callback(2, steps + 3, f"Otimizador personalizado carregado ({device_name})")
@@ -295,33 +226,22 @@ class CustomStrategy(ProtectionStrategy):
         delta.requires_grad = True
 
         momentum = torch.zeros_like(x_orig)
-        decay = 0.85
 
         for step in range(steps):
             adv_x = torch.clamp(x_orig + delta, 0.0, 1.0)
             adv_lap, adv_sdxl, adv_down = ensemble(adv_x)
 
             if focus == "texture":
-                # Heavy focus on high-frequency texture disruption
                 loss = F.cosine_similarity(adv_lap, clean_lap, dim=1).mean()
             elif focus == "structure":
-                # Heavy focus on spatial structural representations
                 loss = F.cosine_similarity(adv_sdxl, clean_sdxl, dim=1).mean() - 0.3 * F.mse_loss(adv_down, clean_down)
             else:
-                # Balanced
                 loss = 0.5 * F.cosine_similarity(adv_lap, clean_lap, dim=1).mean() + \
                        0.5 * F.cosine_similarity(adv_sdxl, clean_sdxl, dim=1).mean()
 
             loss.backward()
 
-            with torch.no_grad():
-                grad = delta.grad
-                grad_norm = grad / (torch.mean(torch.abs(grad), dim=(1, 2, 3), keepdim=True) + 1e-8)
-                momentum = decay * momentum + grad_norm
-                delta.data = delta.data - alpha * torch.sign(momentum)
-                delta.data = torch.clamp(delta.data, -epsilon, epsilon)
-                delta.data = torch.clamp(x_orig + delta.data, 0.0, 1.0) - x_orig
-                delta.grad.zero_()
+            delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
@@ -333,19 +253,7 @@ class CustomStrategy(ProtectionStrategy):
             progress_callback(steps + 3, steps + 3, "Finalizando imagem protegida personalizada...")
             await asyncio.sleep(0.01)
 
-        with torch.no_grad():
-            final_adv = torch.clamp(x_orig + delta, 0.0, 1.0).squeeze(0).permute(1, 2, 0).cpu().numpy()
-            delta_np = delta.squeeze(0).permute(1, 2, 0).cpu().numpy()
-
-            linf_norm = float(np.max(np.abs(delta_np)))
-            mse = float(np.mean((final_adv - np_img) ** 2))
-            psnr = 10.0 * math.log10(1.0 / max(mse, 1e-10))
-
-            adv_uint8 = (final_adv * 255.0).round().astype(np.uint8)
-            adv_pil = Image.fromarray(adv_uint8)
-
-            if resample_needed:
-                adv_pil = adv_pil.resize((w, h), Image.Resampling.LANCZOS)
+        adv_pil, linf_norm, psnr = finalize_adversarial_image(x_orig, delta, np_img, orig_size, resampled)
 
         fmt = config.output_format.upper()
         if fmt not in ["PNG", "JPEG", "WEBP"]:
@@ -368,11 +276,11 @@ class CustomStrategy(ProtectionStrategy):
             strength=f"custom ({focus}, {steps}p)",
             target_model="custom-adversarial-optimizer",
             perturbation_norm_linf=linf_norm,
-            perturbation_psnr=round(psnr, 2),
+            perturbation_psnr=psnr,
             device_used=device_name,
             steps_computed=steps,
             time_taken_ms=round(elapsed_ms, 2),
-            width=w,
-            height=h,
+            width=orig_size[0],
+            height=orig_size[1],
             exif_removed=config.remove_exif,
         )
