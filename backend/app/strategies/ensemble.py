@@ -131,11 +131,16 @@ class EnsembleStrategy(ProtectionStrategy):
 
             delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
+            # Free intermediate activations immediately
+            del adv_x, adv_lap, adv_sdxl, adv_down, loss
+
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
                 msg = f"Otimizando Ensemble Multi-Modelo ({step + 1}/{steps} passos • {pct}%)"
                 progress_callback(step + 3, steps + 3, msg)
                 await asyncio.sleep(0.005)
+
+        del ensemble, clean_lap, clean_sdxl, clean_down, momentum
 
         if progress_callback:
             progress_callback(steps + 3, steps + 3, "Finalizando imagem ensemble protegida...")
@@ -243,11 +248,16 @@ class CustomStrategy(ProtectionStrategy):
 
             delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
+            # Free intermediate activations immediately
+            del adv_x, adv_lap, adv_sdxl, adv_down, loss
+
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
                 msg = f"Otimização personalizada em execução ({step + 1}/{steps} passos • {pct}%)"
                 progress_callback(step + 3, steps + 3, msg)
                 await asyncio.sleep(0.005)
+
+        del ensemble, clean_lap, clean_sdxl, clean_down, momentum
 
         if progress_callback:
             progress_callback(steps + 3, steps + 3, "Finalizando imagem protegida personalizada...")

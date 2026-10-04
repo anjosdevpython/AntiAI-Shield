@@ -159,11 +159,16 @@ class AntiDreamBoothStrategy(ProtectionStrategy):
 
             delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
+            # Free intermediate activations immediately
+            del adv_x, adv_feats, adv_edges, loss
+
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
                 msg = f"Otimizando perturbação adversarial ({step + 1}/{steps} passos • {pct}%)"
                 progress_callback(step + 3, steps + 3, msg)
                 await asyncio.sleep(0.005)
+
+        del surrogate, clean_feats, clean_edges, momentum
 
         if progress_callback:
             progress_callback(steps + 3, steps + 3, "Finalizando imagem protegida e removendo metadados...")

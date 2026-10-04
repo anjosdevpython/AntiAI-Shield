@@ -189,11 +189,16 @@ class AntiEditingStrategy(ProtectionStrategy):
 
             delta, momentum = apply_pgd_step(delta, delta.grad, momentum, alpha, epsilon, x_orig)
 
+            # Free intermediate activations immediately to minimize peak memory
+            del adv_x, transformed_x, adv_latent, adv_patches, adv_edges, adv_lowfreq, loss
+
             if progress_callback:
                 pct = int(((step + 1) / steps) * 100)
                 msg = f"Imunizando contra Inpainting e Edição ({step + 1}/{steps} passos • {pct}%)"
                 progress_callback(step + 3, steps + 3, msg)
                 await asyncio.sleep(0.005)
+
+        del model, clean_latent, clean_patches, clean_edges, clean_lowfreq, corrupt_latent_target, corrupt_lowfreq_target, momentum
 
         if progress_callback:
             progress_callback(steps + 3, steps + 3, "Finalizando proteção anti-edição com resiliência...")

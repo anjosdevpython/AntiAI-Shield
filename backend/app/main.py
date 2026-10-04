@@ -20,6 +20,7 @@ logger = logging.getLogger("antiai-shield")
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Initializing AntiAI Shield backend...")
+    torch.set_num_threads(2)
     cuda_avail = torch.cuda.is_available()
     device_name = torch.cuda.get_device_name(0) if cuda_avail else "CPU"
     logger.info(f"Compute Device: {device_name} (CUDA Available: {cuda_avail})")

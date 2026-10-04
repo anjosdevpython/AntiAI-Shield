@@ -17,7 +17,7 @@ def resolve_device(device_setting: str = "auto") -> Tuple[torch.device, str]:
 def prepare_image_tensor(
     image: Image.Image,
     device: torch.device,
-    max_dim: int = 1920,
+    max_dim: int = 768,
 ) -> Tuple[torch.Tensor, np.ndarray, Tuple[int, int], bool]:
     """
     Converts PIL Image to normalized PyTorch tensor [1, 3, H, W] in [0, 1].

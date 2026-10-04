@@ -161,6 +161,11 @@ class ImageProtectionService:
         with open(protected_path, "wb") as f_prot:
             f_prot.write(result.image_bytes)
 
+        # Explicitly release image objects and trigger garbage collection
+        del pil_img
+        import gc
+        gc.collect()
+
         # Store metadata
         record = {
             "image_id": image_id,
