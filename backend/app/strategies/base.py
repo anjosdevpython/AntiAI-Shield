@@ -15,6 +15,8 @@ class ProtectionConfig:
     custom_epsilon: Optional[float] = None
     custom_steps: Optional[int] = None
     custom_focus: Optional[str] = "balanced"  # balanced, texture, structure
+    # Semantic defense against multimodal LLMs (ChatGPT / Claude / Gemini)
+    anti_llm_directive: bool = True
 
 
 @dataclass

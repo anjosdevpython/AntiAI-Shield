@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ShieldCheck, Cpu, Lock } from "lucide-react";
+import { ShieldCheck, Cpu, Lock, Bot } from "lucide-react";
 import { ProtectionStrength, StrategyInfo, SystemConfig } from "@/types";
 import { DEFAULT_STRATEGIES, STRENGTH_OPTIONS_DETAILS } from "@/lib/constants";
 import { SelectedImageCard } from "./studio/SelectedImageCard";
@@ -22,6 +22,7 @@ interface ProtectionSettingsProps {
     customEpsilon?: number;
     customSteps?: number;
     customFocus?: string;
+    antiLlmDirective?: boolean;
   }) => void;
   onReset: () => void;
 }
@@ -39,6 +40,7 @@ export const ProtectionSettings: React.FC<ProtectionSettingsProps> = ({
   );
   const [selectedMethod, setSelectedMethod] = useState<string>("anti-editing");
   const [removeExif, setRemoveExif] = useState<boolean>(true);
+  const [antiLlmDirective, setAntiLlmDirective] = useState<boolean>(true);
 
   // Custom strategy sliders
   const [customEpsilonDenom, setCustomEpsilonDenom] = useState<number>(12); // numerator for /255
@@ -58,6 +60,7 @@ export const ProtectionSettings: React.FC<ProtectionSettingsProps> = ({
       customEpsilon: selectedMethod === "custom" ? customEpsilonDenom / 255.0 : undefined,
       customSteps: selectedMethod === "custom" ? customSteps : undefined,
       customFocus: selectedMethod === "custom" ? customFocus : undefined,
+      antiLlmDirective,
     });
   };
 
@@ -96,6 +99,33 @@ export const ProtectionSettings: React.FC<ProtectionSettingsProps> = ({
             onSelectStrength={setSelectedStrength}
           />
         )}
+
+        {/* Anti-ChatGPT & Multimodal LLM Visual Prompt Injection */}
+        <div className="glass-panel rounded-xl p-5 border border-purple-500/30 bg-purple-950/20 space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={antiLlmDirective}
+              onChange={(e) => setAntiLlmDirective(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded accent-purple-500 cursor-pointer"
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-white">
+                  Blindagem Semântica Anti-ChatGPT / GPT-4o (Visual Prompt Injection)
+                </span>
+                <span className="rounded bg-purple-500/20 px-2 py-0.5 text-[10px] font-semibold text-purple-300 border border-purple-500/40">
+                  Anti-LLM
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-300 leading-relaxed">
+                Injeta diretrizes visuais e semânticas imperceptíveis que acionam as políticas de recusa do
+                ChatGPT (GPT-4o), Claude e Gemini, instruindo a IA a recusar qualquer pedido para editar,
+                alterar ou redesenhar esta pessoa.
+              </p>
+            </div>
+          </label>
+        </div>
 
         {/* Privacy & EXIF Option */}
         <div className="glass-panel rounded-xl p-5 border border-white/10 space-y-4">

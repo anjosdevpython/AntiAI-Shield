@@ -46,6 +46,7 @@ export const ShieldStudio: React.FC<ShieldStudioProps> = ({ config }) => {
     customEpsilon?: number;
     customSteps?: number;
     customFocus?: string;
+    antiLlmDirective?: boolean;
   }) => {
     if (!selectedFile) return;
 

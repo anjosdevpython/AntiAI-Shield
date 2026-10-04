@@ -62,6 +62,11 @@ export const ResultComparison: React.FC<ResultComparisonProps> = ({
               <CheckCircle2 className="h-3.5 w-3.5" />
               Proteção concluída
             </span>
+            {result.anti_llm_directive && (
+              <span className="flex h-6 items-center gap-1 rounded-full bg-purple-500/15 px-2.5 text-xs font-semibold text-purple-300 border border-purple-500/30">
+                Anti-ChatGPT Ativo
+              </span>
+            )}
           </div>
           <h3 className="mt-2 text-2xl font-bold tracking-tight text-white">
             Imagem protegida

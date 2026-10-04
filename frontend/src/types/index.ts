@@ -41,6 +41,7 @@ export interface ProtectionResult {
   steps_computed: number;
   time_taken_ms: number;
   exif_removed: boolean;
+  anti_llm_directive?: boolean;
   download_url: string;
   original_preview_url: string;
   protected_preview_url: string;

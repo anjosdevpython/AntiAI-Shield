@@ -71,6 +71,7 @@ async def protect_image(
     custom_epsilon: float = Form(None, description="Orçamento epsilon customizado (ex: 0.047)"),
     custom_steps: int = Form(None, description="Número customizado de iterações"),
     custom_focus: str = Form("balanced", description="Foco customizado: balanced, texture, structure"),
+    anti_llm_directive: bool = Form(True, description="Injeta diretrizes visuais e semânticas anti-ChatGPT/LLMs"),
 ):
     """
     Receives image, validates file safety, applies adversarial perturbation,
@@ -94,6 +95,7 @@ async def protect_image(
             custom_epsilon=custom_epsilon,
             custom_steps=custom_steps,
             custom_focus=custom_focus,
+            anti_llm_directive=anti_llm_directive,
         )
         return result
     except ImageSecurityError as e:

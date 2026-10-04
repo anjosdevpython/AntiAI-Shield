@@ -109,6 +109,7 @@ export interface ProtectOptions {
   customEpsilon?: number;
   customSteps?: number;
   customFocus?: string;
+  antiLlmDirective?: boolean;
 }
 
 export async function protectImage(
@@ -130,6 +131,9 @@ export async function protectImage(
   }
   if (options.customFocus) {
     formData.append("custom_focus", options.customFocus);
+  }
+  if (options.antiLlmDirective !== undefined) {
+    formData.append("anti_llm_directive", String(options.antiLlmDirective));
   }
 
   const res = await fetch(buildApiUrl("/api/protect"), {

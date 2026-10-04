@@ -5,6 +5,8 @@ from typing import Dict, List, Optional
 from PIL import Image
 
 from app.config import settings
+from app.core.exif import save_image_stripped
+from app.core.prompt_injection import inject_visual_prompt_injection
 from app.core.security import (
     generate_secure_file_id,
     sanitize_filename,
@@ -69,6 +71,7 @@ class ImageProtectionService:
         custom_epsilon: Optional[float] = None,
         custom_steps: Optional[int] = None,
         custom_focus: Optional[str] = "balanced",
+        anti_llm_directive: bool = True,
         progress_callback: Optional[ProgressCallback] = None,
     ) -> dict:
         """
@@ -115,6 +118,7 @@ class ImageProtectionService:
             custom_epsilon=custom_epsilon,
             custom_steps=custom_steps,
             custom_focus=custom_focus,
+            anti_llm_directive=anti_llm_directive,
         )
 
         # 4. Execute strategy
@@ -127,7 +131,21 @@ class ImageProtectionService:
         except Exception as e:
             raise ProtectionServiceError(f"Falha durante o processamento da imagem: {str(e)}") from e
 
-        # 5. Persist protected and original files temporarily with UUID
+        # 5. Apply Semantic Visual Prompt Injection (Anti-ChatGPT / Anti-LLM) if enabled
+        if anti_llm_directive:
+            try:
+                prot_pil = Image.open(io.BytesIO(result.image_bytes))
+                injected_pil = inject_visual_prompt_injection(prot_pil, opacity_level="subtle")
+                if remove_exif:
+                    result.image_bytes = save_image_stripped(injected_pil, output_format=output_format, quality=95)
+                else:
+                    buf = io.BytesIO()
+                    injected_pil.save(buf, format=output_format, quality=95)
+                    result.image_bytes = buf.getvalue()
+            except Exception:
+                pass
+
+        # 6. Persist protected and original files temporarily with UUID
         image_id = generate_secure_file_id()
         orig_filename = f"{image_id}_orig{file_ext}"
         protected_filename = f"{image_id}_protected{file_ext}"
@@ -164,6 +182,7 @@ class ImageProtectionService:
             "steps_computed": result.steps_computed,
             "time_taken_ms": result.time_taken_ms,
             "exif_removed": result.exif_removed,
+            "anti_llm_directive": anti_llm_directive,
         }
         self._records[image_id] = record
 
@@ -186,6 +205,7 @@ class ImageProtectionService:
             "steps_computed": result.steps_computed,
             "time_taken_ms": result.time_taken_ms,
             "exif_removed": result.exif_removed,
+            "anti_llm_directive": anti_llm_directive,
             "download_url": f"/api/download/{image_id}",
             "original_preview_url": f"/api/preview/{image_id}?type=original",
             "protected_preview_url": f"/api/preview/{image_id}?type=protected",
