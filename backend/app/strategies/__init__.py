@@ -7,6 +7,7 @@ from app.strategies.base import (
 from app.strategies.anti_dreambooth import AntiDreamBoothStrategy
 from app.strategies.anti_lora import AntiLoRAStrategy
 from app.strategies.ensemble import EnsembleStrategy, CustomStrategy
+from app.strategies.anti_editing import AntiEditingStrategy
 
 __all__ = [
     "ProtectionConfig",
@@ -15,6 +16,7 @@ __all__ = [
     "ProtectionStrategy",
     "AntiDreamBoothStrategy",
     "AntiLoRAStrategy",
+    "AntiEditingStrategy",
     "EnsembleStrategy",
     "CustomStrategy",
 ]

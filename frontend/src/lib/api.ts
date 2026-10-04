@@ -20,6 +20,13 @@ export async function fetchSystemConfig(): Promise<SystemConfig> {
       delete_after_processing: true,
       strategies: [
         {
+          id: "anti-editing",
+          name: "Anti-Edição (PhotoGuard)",
+          description:
+            "Defesa ativa contra edição por IA, Inpainting e Generative Fill (PhotoGuard / MIT), corrompendo codificadores latentes.",
+          is_implemented: true,
+        },
+        {
           id: "anti-dreambooth",
           name: "Anti-DreamBooth",
           description:

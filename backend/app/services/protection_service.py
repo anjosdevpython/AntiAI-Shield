@@ -12,6 +12,7 @@ from app.core.security import (
 )
 from app.strategies import (
     AntiDreamBoothStrategy,
+    AntiEditingStrategy,
     AntiLoRAStrategy,
     CustomStrategy,
     EnsembleStrategy,
@@ -36,6 +37,7 @@ class ImageProtectionService:
     def __init__(self):
         # Register available strategies (Strategy Pattern)
         self.strategies: Dict[str, ProtectionStrategy] = {
+            "anti-editing": AntiEditingStrategy(),
             "anti-dreambooth": AntiDreamBoothStrategy(),
             "anti-lora": AntiLoRAStrategy(),
             "ensemble": EnsembleStrategy(),
