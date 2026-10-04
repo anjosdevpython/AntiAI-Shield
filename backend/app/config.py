@@ -28,6 +28,9 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
+        "https://anti-ai-shield-jet.vercel.app",
+        "https://antiai-shield-backend.onrender.com",
+        "*",
     ]
 
     # File storage paths

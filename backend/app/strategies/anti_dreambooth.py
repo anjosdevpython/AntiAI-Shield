@@ -119,9 +119,17 @@ class AntiDreamBoothStrategy(ProtectionStrategy):
         device, device_name = resolve_device(config.device)
         strength = config.strength if config.strength in self.STRENGTH_CONFIGS else "balanced"
         cfg = self.STRENGTH_CONFIGS[strength]
-        epsilon = cfg["epsilon"]
-        alpha = cfg["alpha"]
-        steps = cfg["steps"]
+        epsilon = config.custom_epsilon if config.custom_epsilon is not None else cfg["epsilon"]
+        if config.custom_steps is not None:
+            steps = config.custom_steps
+            alpha = cfg["alpha"]
+        elif device.type == "cpu":
+            cpu_steps_map = {"balanced": 5, "strong": 7, "maximum": 9}
+            steps = cpu_steps_map.get(strength, 5)
+            alpha = epsilon / 2.5
+        else:
+            steps = cfg["steps"]
+            alpha = cfg["alpha"]
 
         if progress_callback:
             progress_callback(1, steps + 3, "Pré-processando imagem e preparando tensores...")

@@ -92,9 +92,17 @@ class EnsembleStrategy(ProtectionStrategy):
         device, device_name = resolve_device(config.device)
         strength = config.strength if config.strength in self.STRENGTH_CONFIGS else "balanced"
         cfg = self.STRENGTH_CONFIGS[strength]
-        epsilon = cfg["epsilon"]
-        alpha = cfg["alpha"]
-        steps = cfg["steps"]
+        epsilon = config.custom_epsilon if config.custom_epsilon is not None else cfg["epsilon"]
+        if config.custom_steps is not None:
+            steps = config.custom_steps
+            alpha = cfg["alpha"]
+        elif device.type == "cpu":
+            cpu_steps_map = {"balanced": 6, "strong": 8, "maximum": 10}
+            steps = cpu_steps_map.get(strength, 6)
+            alpha = epsilon / 3.0
+        else:
+            steps = cfg["steps"]
+            alpha = cfg["alpha"]
 
         if progress_callback:
             progress_callback(1, steps + 3, "Inicializando ensemble de modelos surrogates...")
@@ -205,8 +213,12 @@ class CustomStrategy(ProtectionStrategy):
         epsilon = max(2.0 / 255.0, min(32.0 / 255.0, float(epsilon)))
         alpha = epsilon / 4.0
 
-        steps = config.custom_steps if config.custom_steps else 14
-        steps = max(4, min(30, int(steps)))
+        if config.custom_steps:
+            steps = max(4, min(30, int(config.custom_steps)))
+        elif device.type == "cpu":
+            steps = 8
+        else:
+            steps = 14
 
         focus = config.custom_focus or "balanced"
 

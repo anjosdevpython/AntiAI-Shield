@@ -132,8 +132,16 @@ class AntiEditingStrategy(ProtectionStrategy):
 
         # Allow user custom parameters if explicitly provided
         epsilon = config.custom_epsilon if config.custom_epsilon is not None else cfg["epsilon"]
-        steps = config.custom_steps if config.custom_steps is not None else cfg["steps"]
-        alpha = cfg["alpha"]
+        if config.custom_steps is not None:
+            steps = config.custom_steps
+            alpha = cfg["alpha"]
+        elif device.type == "cpu":
+            cpu_steps_map = {"balanced": 6, "strong": 8, "maximum": 10}
+            steps = cpu_steps_map.get(strength, 6)
+            alpha = epsilon / 3.0
+        else:
+            steps = cfg["steps"]
+            alpha = cfg["alpha"]
 
         if progress_callback:
             progress_callback(1, steps + 3, "Preparando imunização multi-escala contra edição generativa...")

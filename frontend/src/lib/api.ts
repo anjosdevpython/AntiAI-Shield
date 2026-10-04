@@ -1,15 +1,36 @@
 import { ProtectionResult, ProtectionStrength, SystemConfig } from "@/types";
 
+const DEFAULT_PRODUCTION_BACKEND = "https://antiai-shield-backend.onrender.com";
+
 /**
  * Resolves the base URL for backend API requests.
- * In server-side functions/SSR, Vercel injects the bound internal service URL via process.env.BACKEND_URL.
- * In client-side browser runtime, requests use relative paths (or NEXT_PUBLIC_API_URL if configured).
+ * In server-side functions/SSR, Vercel injects the bound URL via BACKEND_URL.
+ * In browser runtime, connects directly to Render backend in production to bypass
+ * Vercel's strict 15-second proxy timeout, while honoring local dev servers.
  */
 export function getApiBase(): string {
   if (typeof window === "undefined") {
-    return process.env.BACKEND_URL || process.env.BACKEND_INTERNAL_URL || "";
+    return (
+      process.env.BACKEND_URL ||
+      process.env.BACKEND_INTERNAL_URL ||
+      DEFAULT_PRODUCTION_BACKEND
+    );
   }
-  return process.env.NEXT_PUBLIC_API_URL || "";
+
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+
+  // Local development fallback
+  if (
+    window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+  ) {
+    return "http://127.0.0.1:8000";
+  }
+
+  // Production fallback to cloud backend
+  return DEFAULT_PRODUCTION_BACKEND;
 }
 
 export function buildApiUrl(endpoint: string): string {
@@ -136,20 +157,34 @@ export async function protectImage(
     formData.append("anti_llm_directive", String(options.antiLlmDirective));
   }
 
-  const res = await fetch(buildApiUrl("/api/protect"), {
-    method: "POST",
-    body: formData,
-  });
+  let res: Response;
+  try {
+    res = await fetch(buildApiUrl("/api/protect"), {
+      method: "POST",
+      body: formData,
+    });
+  } catch (err: unknown) {
+    const errorMsg =
+      (err as { message?: string })?.message === "Failed to fetch"
+        ? "Não foi possível conectar ao servidor de processamento. O servidor em nuvem pode estar iniciando (cold start de ~30s no plano gratuito) ou ocorreu uma oscilação na conexão. Por favor, tente novamente em instantes."
+        : `Erro de conexão com o servidor: ${(err as { message?: string })?.message || "Falha na requisição"}`;
+    throw new Error(errorMsg);
+  }
 
   if (!res.ok) {
     let errorDetail = "Falha ao proteger a imagem.";
-    try {
-      const errJson = await res.json();
-      if (errJson.detail) {
-        errorDetail = errJson.detail;
+    if (res.status === 502 || res.status === 503) {
+      errorDetail =
+        "O servidor em nuvem está temporariamente reiniciando ou sob carga. Aguarde cerca de 30 segundos e tente novamente.";
+    } else {
+      try {
+        const errJson = await res.json();
+        if (errJson.detail) {
+          errorDetail = errJson.detail;
+        }
+      } catch {
+        errorDetail = `Erro no servidor (${res.status}): ${res.statusText}`;
       }
-    } catch {
-      errorDetail = `Erro no servidor (${res.status}): ${res.statusText}`;
     }
     throw new Error(errorDetail);
   }

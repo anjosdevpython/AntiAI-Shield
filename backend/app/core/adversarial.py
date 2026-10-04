@@ -1,5 +1,5 @@
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 import numpy as np
 from PIL import Image
 import torch
@@ -17,21 +17,24 @@ def resolve_device(device_setting: str = "auto") -> Tuple[torch.device, str]:
 def prepare_image_tensor(
     image: Image.Image,
     device: torch.device,
-    max_dim: int = 768,
+    max_dim: Optional[int] = None,
 ) -> Tuple[torch.Tensor, np.ndarray, Tuple[int, int], bool]:
     """
     Converts PIL Image to normalized PyTorch tensor [1, 3, H, W] in [0, 1].
     Applies high-quality Lanczos downsampling if the image exceeds max_dim.
+    Adapts max_dim automatically: 448 on CPU (ultra-fast, low-RAM), 768 on CUDA.
     
     Returns:
         (x_orig_tensor, normalized_numpy_array, (width, height), resampled_boolean)
     """
     orig_rgb = image.convert("RGB") if image.mode != "RGB" else image
     w, h = orig_rgb.size
-    resample_needed = max(w, h) > max_dim
+
+    effective_max_dim = max_dim if max_dim is not None else (768 if device.type == "cuda" else 448)
+    resample_needed = max(w, h) > effective_max_dim
 
     if resample_needed:
-        scale = max_dim / max(w, h)
+        scale = effective_max_dim / max(w, h)
         proc_w, proc_h = int(w * scale), int(h * scale)
         proc_img = orig_rgb.resize((proc_w, proc_h), Image.Resampling.LANCZOS)
     else:

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import time
 from pathlib import Path
@@ -47,6 +48,8 @@ class ImageProtectionService:
         }
         # In-memory storage for active file records: image_id -> dict
         self._records: Dict[str, dict] = {}
+        # Concurrency lock to prevent multiple heavy autograd workloads from exhausting 512MB RAM
+        self._concurrency_lock = asyncio.Lock()
 
     def get_available_strategies(self) -> List[dict]:
         """Returns catalog of registered protection strategies."""
@@ -121,13 +124,14 @@ class ImageProtectionService:
             anti_llm_directive=anti_llm_directive,
         )
 
-        # 4. Execute strategy
+        # 4. Execute strategy safely under concurrency lock
         try:
-            result: ProtectionResult = await strategy.protect(
-                image=pil_img,
-                config=config,
-                progress_callback=progress_callback,
-            )
+            async with self._concurrency_lock:
+                result: ProtectionResult = await strategy.protect(
+                    image=pil_img,
+                    config=config,
+                    progress_callback=progress_callback,
+                )
         except Exception as e:
             raise ProtectionServiceError(f"Falha durante o processamento da imagem: {str(e)}") from e
 
