@@ -1,10 +1,33 @@
 import { ProtectionResult, ProtectionStrength, SystemConfig } from "@/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+/**
+ * Resolves the base URL for backend API requests.
+ * In server-side functions/SSR, Vercel injects the bound internal service URL via process.env.BACKEND_URL.
+ * In client-side browser runtime, requests use relative paths (or NEXT_PUBLIC_API_URL if configured).
+ */
+export function getApiBase(): string {
+  if (typeof window === "undefined") {
+    return process.env.BACKEND_URL || process.env.BACKEND_INTERNAL_URL || "";
+  }
+  return process.env.NEXT_PUBLIC_API_URL || "";
+}
+
+export function buildApiUrl(endpoint: string): string {
+  const base = getApiBase();
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  if (!base) {
+    return cleanEndpoint;
+  }
+  try {
+    return new URL(cleanEndpoint, base).toString();
+  } catch {
+    return `${base.replace(/\/+$/, "")}${cleanEndpoint}`;
+  }
+}
 
 export async function fetchSystemConfig(): Promise<SystemConfig> {
   try {
-    const res = await fetch(`${API_BASE}/api/config`);
+    const res = await fetch(buildApiUrl("/api/config"));
     if (!res.ok) {
       throw new Error(`Falha ao obter configurações do servidor: ${res.statusText}`);
     }
@@ -109,7 +132,7 @@ export async function protectImage(
     formData.append("custom_focus", options.customFocus);
   }
 
-  const res = await fetch(`${API_BASE}/api/protect`, {
+  const res = await fetch(buildApiUrl("/api/protect"), {
     method: "POST",
     body: formData,
   });
@@ -132,7 +155,7 @@ export async function protectImage(
 
 export async function cleanupSessionImage(imageId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/cleanup/${imageId}`, {
+    const res = await fetch(buildApiUrl(`/api/cleanup/${imageId}`), {
       method: "DELETE",
     });
     return res.ok;
@@ -142,9 +165,9 @@ export async function cleanupSessionImage(imageId: string): Promise<boolean> {
 }
 
 export function getDownloadUrl(imageId: string): string {
-  return `${API_BASE}/api/download/${imageId}`;
+  return buildApiUrl(`/api/download/${imageId}`);
 }
 
 export function getPreviewUrl(imageId: string, type: "original" | "protected"): string {
-  return `${API_BASE}/api/preview/${imageId}?type=${type}`;
+  return buildApiUrl(`/api/preview/${imageId}?type=${type}`);
 }
