@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: antiai-shield-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production
+      - MAX_UPLOAD_MB=20
+      - DELETE_AFTER_PROCESSING=true
+      - DEVICE=auto
+      - CORS_ORIGINS=http://localhost:3000,https://antiai-shield.vercel.app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: antiai-shield-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_INTERNAL_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
